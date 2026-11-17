@@ -7,7 +7,7 @@ import (
 )
 
 // ErrBlobNotFound indicates that the object does not exist in storage.
-var ErrBlobNotFound = errors.New("objeto no encontrado en el almacenamiento")
+var ErrBlobNotFound = errors.New("object not found in storage")
 
 // BlobInfo is the minimum object metadata the domain needs.
 type BlobInfo struct {
