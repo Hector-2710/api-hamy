@@ -8,27 +8,35 @@ import (
 )
 
 // NewRouter registers all API routes.
-func NewRouter(userHandler *handler.UserHandler, albumHandler *handler.AlbumHandler, photoHandler *handler.PhotoHandler) *gin.Engine {
+func NewRouter(
+	healthHandler *handler.HealthHandler,
+	authHandler *handler.AuthHandler,
+	authenticator middleware.Authenticator,
+	albumHandler *handler.AlbumHandler,
+	photoHandler *handler.PhotoHandler,
+	adminHandler *handler.AdminHandler,
+	allowedOrigins []string,
+) *gin.Engine {
 	r := gin.Default()
+	r.Use(middleware.CORS(allowedOrigins))
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+	r.GET("/readyz", healthHandler.Ready)
 
 	v1 := r.Group("/api/v1")
 	{
-		// Open user signup (bootstrap). Everything else requires identity.
-		users := v1.Group("/users")
-		users.POST("", userHandler.Create)
-		users.GET("", userHandler.List)
-		users.GET("/:id", userHandler.Get)
-		users.PATCH("/:id", userHandler.Update)
-		users.DELETE("/:id", userHandler.Delete)
+		// Public: only the authentication endpoints are open.
+		auth := v1.Group("/auth")
+		auth.POST("/register", authHandler.Register)
+		auth.POST("/login", authHandler.Login)
 	}
 
-	// TODO: replace middleware.Actor with JWT auth once it exists.
-	secure := v1.Group("", middleware.Actor())
+	secure := v1.Group("", middleware.Auth(authenticator))
 	{
+		secure.GET("/auth/me", authHandler.Me)
+
 		albums := secure.Group("/albums")
 		albums.POST("", albumHandler.Create)
 		albums.GET("", albumHandler.List)
@@ -53,6 +61,15 @@ func NewRouter(userHandler *handler.UserHandler, albumHandler *handler.AlbumHand
 
 		secure.GET("/photos/:id/download-url", photoHandler.DownloadURL)
 		secure.DELETE("/photos/:id", photoHandler.Delete)
+	}
+
+	// Separate administration module. Every route requires an admin identity.
+	admin := secure.Group("/admin", middleware.RequireAdmin())
+	{
+		admin.GET("/users", adminHandler.ListUsers)
+		admin.GET("/users/:id", adminHandler.GetUser)
+		admin.PATCH("/users/:id", adminHandler.UpdateUser)
+		admin.DELETE("/users/:id", adminHandler.DeleteUser)
 	}
 
 	return r

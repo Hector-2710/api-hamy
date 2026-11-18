@@ -31,10 +31,17 @@ func BadRequest(c *gin.Context, message string) {
 	})
 }
 
-// Unauthorized responds 401 when identity is missing.
+// Unauthorized responds 401 when identity is missing or invalid.
 func Unauthorized(c *gin.Context, message string) {
 	c.JSON(http.StatusUnauthorized, ErrorResponse{
 		Error: ErrorDetail{Code: "unauthorized", Message: message},
+	})
+}
+
+// Forbidden responds 403 when the identity lacks the required role.
+func Forbidden(c *gin.Context, message string) {
+	c.JSON(http.StatusForbidden, ErrorResponse{
+		Error: ErrorDetail{Code: "forbidden", Message: message},
 	})
 }
 
@@ -49,6 +56,9 @@ func Error(c *gin.Context, err error) {
 		status, code, message = http.StatusConflict, "conflict", err.Error()
 	case errors.Is(err, domain.ErrInvalid):
 		status, code, message = http.StatusUnprocessableEntity, "invalid", err.Error()
+	case errors.Is(err, domain.ErrUnauthorized):
+		// Keep the message generic so login cannot reveal which factor failed.
+		status, code, message = http.StatusUnauthorized, "unauthorized", domain.ErrUnauthorized.Error()
 	case errors.Is(err, domain.ErrForbidden):
 		status, code, message = http.StatusForbidden, "forbidden", err.Error()
 	default:
