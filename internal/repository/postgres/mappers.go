@@ -46,13 +46,23 @@ func uuidValuePtr(s *string) pgtype.UUID {
 
 func mapUser(u sqlcgen.User) domain.User {
 	return domain.User{
-		ID:        u.ID,
-		Name:      u.Name,
-		Email:     u.Email,
-		DeletedAt: timePtr(u.DeletedAt),
-		CreatedAt: u.CreatedAt.Time,
-		UpdatedAt: u.UpdatedAt.Time,
+		ID:           u.ID,
+		Name:         u.Name,
+		Email:        u.Email,
+		IsAdmin:      u.IsAdmin,
+		PasswordHash: derefString(u.PasswordHash),
+		DeletedAt:    timePtr(u.DeletedAt),
+		CreatedAt:    u.CreatedAt.Time,
+		UpdatedAt:    u.UpdatedAt.Time,
 	}
+}
+
+// derefString collapses a nullable SQL text into the domain's empty string.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func mapAlbum(a sqlcgen.Album, role string) domain.Album {

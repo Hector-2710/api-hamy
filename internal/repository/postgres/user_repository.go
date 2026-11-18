@@ -20,9 +20,16 @@ func NewUserRepository(db sqlcgen.DBTX) *UserRepository {
 }
 
 func (r *UserRepository) Create(ctx context.Context, u *domain.User) error {
+	var hash *string
+	if u.PasswordHash != "" {
+		hash = &u.PasswordHash
+	}
+
 	row, err := r.q.CreateUser(ctx, sqlcgen.CreateUserParams{
-		Name:  u.Name,
-		Email: u.Email,
+		Name:         u.Name,
+		Email:        u.Email,
+		PasswordHash: hash,
+		IsAdmin:      u.IsAdmin,
 	})
 	if err != nil {
 		return mapErr(err)
@@ -76,11 +83,18 @@ func (r *UserRepository) List(ctx context.Context, f domain.ListFilter) ([]domai
 }
 
 func (r *UserRepository) Update(ctx context.Context, u *domain.User) error {
-	row, err := r.q.UpdateUser(ctx, sqlcgen.UpdateUserParams{
-		Name:  &u.Name,
-		Email: &u.Email,
-		ID:    u.ID,
-	})
+	params := sqlcgen.UpdateUserParams{
+		Name:    &u.Name,
+		Email:   &u.Email,
+		IsAdmin: &u.IsAdmin,
+		ID:      u.ID,
+	}
+	// Only rotate the password when the caller set a new hash.
+	if u.PasswordHash != "" {
+		params.PasswordHash = &u.PasswordHash
+	}
+
+	row, err := r.q.UpdateUser(ctx, params)
 	if err != nil {
 		return mapErr(err)
 	}
