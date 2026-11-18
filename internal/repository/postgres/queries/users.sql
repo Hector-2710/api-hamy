@@ -1,6 +1,6 @@
 -- name: CreateUser :one
-INSERT INTO users (name, email)
-VALUES ($1, $2)
+INSERT INTO users (name, email, password_hash, is_admin)
+VALUES ($1, $2, $3, $4)
 RETURNING *;
 
 -- name: GetUserByID :one
@@ -25,9 +25,11 @@ WHERE deleted_at IS NULL
 
 -- name: UpdateUser :one
 UPDATE users
-SET name  = COALESCE(sqlc.narg('name'), name),
-    email = COALESCE(sqlc.narg('email'), email),
-    updated_at = now()
+SET name          = COALESCE(sqlc.narg('name'), name),
+    email         = COALESCE(sqlc.narg('email'), email),
+    password_hash = COALESCE(sqlc.narg('password_hash'), password_hash),
+    is_admin      = COALESCE(sqlc.narg('is_admin'), is_admin),
+    updated_at    = now()
 WHERE id = sqlc.arg('id') AND deleted_at IS NULL
 RETURNING *;
 
