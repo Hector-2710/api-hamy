@@ -5,7 +5,7 @@ export
 DB_DSN ?= postgres://hamy:hamy@localhost:5432/hamy?sslmode=disable
 SQLC_VERSION ?= v1.31.1
 
-.PHONY: run build test generate db-up storage-up infra-up up down ps logs db-logs migrate-up migrate-down migrate-create
+.PHONY: run build test coverage test-integration seed smoke generate db-up storage-up infra-up up down ps logs db-logs migrate-up migrate-down migrate-create
 
 run:
 	go run ./cmd/api
@@ -14,7 +14,23 @@ build:
 	go build -o bin/api ./cmd/api
 
 test:
-	go test ./...
+	go test -race ./...
+
+coverage:
+	go test -race -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+
+# Requires a migrated database. Defaults to the local DB_DSN.
+test-integration:
+	DB_TEST_DSN="$${DB_TEST_DSN:-$(DB_DSN)}" go test -race -tags=integration ./internal/repository/postgres/...
+
+# Idempotent demo accounts (credentials reset) and album.
+seed:
+	go run ./cmd/seed
+
+# End-to-end flow against a running stack (make up).
+smoke:
+	./scripts/smoke.sh
 
 # Regenerates internal/repository/postgres/sqlcgen from queries/*.sql
 generate:
