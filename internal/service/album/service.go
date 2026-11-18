@@ -143,11 +143,11 @@ func (s *Service) Invite(ctx context.Context, actorID, albumID, userID, email st
 		return nil, err
 	}
 
-	if target.ID == a.OwnerID {
-		return nil, fmt.Errorf("%w: the owner already has access to the album", domain.ErrConflict)
-	}
 	if target.ID == actorID {
 		return nil, fmt.Errorf("%w: you cannot invite yourself", domain.ErrInvalid)
+	}
+	if target.ID == a.OwnerID {
+		return nil, fmt.Errorf("%w: the owner already has access to the album", domain.ErrConflict)
 	}
 
 	existing, err := s.albums.GetMember(ctx, albumID, target.ID)
@@ -274,7 +274,13 @@ func (s *Service) resolveUser(ctx context.Context, userID, email string) (*domai
 	case strings.TrimSpace(userID) != "":
 		return s.users.GetByID(ctx, strings.TrimSpace(userID))
 	case strings.TrimSpace(email) != "":
-		return s.users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+		u, err := s.users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+		if errors.Is(err, domain.ErrNotFound) {
+			// Invitees must already have an account: make the requirement
+			// explicit instead of returning a generic 404.
+			return nil, fmt.Errorf("%w: the invited user must have an account", domain.ErrInvalid)
+		}
+		return u, err
 	default:
 		return nil, fmt.Errorf("%w: provide user_id or email", domain.ErrInvalid)
 	}
