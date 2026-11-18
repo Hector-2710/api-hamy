@@ -23,18 +23,25 @@ func (q *Queries) CountUsers(ctx context.Context, search string) (int64, error) 
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (name, email)
-VALUES ($1, $2)
-RETURNING id, name, email, created_at, updated_at, deleted_at
+INSERT INTO users (name, email, password_hash, is_admin)
+VALUES ($1, $2, $3, $4)
+RETURNING id, name, email, created_at, updated_at, deleted_at, password_hash, is_admin
 `
 
 type CreateUserParams struct {
-	Name  string
-	Email string
+	Name         string
+	Email        string
+	PasswordHash *string
+	IsAdmin      bool
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, createUser, arg.Name, arg.Email)
+	row := q.db.QueryRow(ctx, createUser,
+		arg.Name,
+		arg.Email,
+		arg.PasswordHash,
+		arg.IsAdmin,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -43,12 +50,14 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, created_at, updated_at, deleted_at FROM users
+SELECT id, name, email, created_at, updated_at, deleted_at, password_hash, is_admin FROM users
 WHERE lower(email) = lower($1) AND deleted_at IS NULL
 `
 
@@ -62,12 +71,14 @@ func (q *Queries) GetUserByEmail(ctx context.Context, lower string) (User, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, name, email, created_at, updated_at, deleted_at FROM users
+SELECT id, name, email, created_at, updated_at, deleted_at, password_hash, is_admin FROM users
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -81,12 +92,14 @@ func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, name, email, created_at, updated_at, deleted_at FROM users
+SELECT id, name, email, created_at, updated_at, deleted_at, password_hash, is_admin FROM users
 WHERE deleted_at IS NULL
   AND ($1::text = '' OR name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
 ORDER BY created_at DESC
@@ -115,6 +128,8 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.PasswordHash,
+			&i.IsAdmin,
 		); err != nil {
 			return nil, err
 		}
@@ -142,21 +157,31 @@ func (q *Queries) SoftDeleteUser(ctx context.Context, id string) (int64, error) 
 
 const updateUser = `-- name: UpdateUser :one
 UPDATE users
-SET name  = COALESCE($1, name),
-    email = COALESCE($2, email),
-    updated_at = now()
-WHERE id = $3 AND deleted_at IS NULL
-RETURNING id, name, email, created_at, updated_at, deleted_at
+SET name          = COALESCE($1, name),
+    email         = COALESCE($2, email),
+    password_hash = COALESCE($3, password_hash),
+    is_admin      = COALESCE($4, is_admin),
+    updated_at    = now()
+WHERE id = $5 AND deleted_at IS NULL
+RETURNING id, name, email, created_at, updated_at, deleted_at, password_hash, is_admin
 `
 
 type UpdateUserParams struct {
-	Name  *string
-	Email *string
-	ID    string
+	Name         *string
+	Email        *string
+	PasswordHash *string
+	IsAdmin      *bool
+	ID           string
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUser, arg.Name, arg.Email, arg.ID)
+	row := q.db.QueryRow(ctx, updateUser,
+		arg.Name,
+		arg.Email,
+		arg.PasswordHash,
+		arg.IsAdmin,
+		arg.ID,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -165,6 +190,8 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.PasswordHash,
+		&i.IsAdmin,
 	)
 	return i, err
 }

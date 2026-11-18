@@ -55,10 +55,12 @@ type Photo struct {
 }
 
 type User struct {
-	ID        string
-	Name      string
-	Email     string
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
-	DeletedAt pgtype.Timestamptz
+	ID           string
+	Name         string
+	Email        string
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	DeletedAt    pgtype.Timestamptz
+	PasswordHash *string
+	IsAdmin      bool
 }
