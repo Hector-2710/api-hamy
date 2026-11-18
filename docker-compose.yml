@@ -1,0 +1,103 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: api-hamy-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hamy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hamy}
+      POSTGRES_DB: ${POSTGRES_DB:-hamy}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hamy} -d ${POSTGRES_DB:-hamy}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # MinIO no longer publishes images on minio/minio or quay.io/minio (they now
+  # require auth). bitnamilegacy keeps a working build; version + digest are
+  # pinned so deployments are reproducible. Override with MINIO_IMAGE.
+  minio:
+    image: ${MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20}
+    container_name: api-hamy-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-hamyadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-hamyadmin123}
+      MINIO_DEFAULT_BUCKETS: ${MINIO_BUCKET:-hamy-photos}
+      MINIO_API_PORT_NUMBER: "9000"
+      MINIO_CONSOLE_PORT_NUMBER: "9001"
+      MINIO_BROWSER: "on"
+      # Allows browser/Flutter-web clients to PUT to presigned URLs.
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-*}
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console
+    volumes:
+      - miniodata:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # Applies migrations (goose) before starting the API.
+  migrate:
+    image: golang:1.27-alpine
+    container_name: api-hamy-migrate
+    working_dir: /src
+    volumes:
+      - ./:/src
+      - gomodcache:/go/pkg/mod
+      - gobuildcache:/root/.cache/go-build
+    environment:
+      DB_DSN: postgres://${POSTGRES_USER:-hamy}:${POSTGRES_PASSWORD:-hamy}@db:5432/${POSTGRES_DB:-hamy}?sslmode=disable
+      GOTOOLCHAIN: auto
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - go run github.com/pressly/goose/v3/cmd/goose@latest -dir migrations postgres "$$DB_DSN" up
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    container_name: api-hamy-api
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      HTTP_PORT: "8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me-please}
+      JWT_ISSUER: ${JWT_ISSUER:-api-hamy}
+      JWT_TTL: ${JWT_TTL:-24h}
+      DB_DSN: postgres://${POSTGRES_USER:-hamy}:${POSTGRES_PASSWORD:-hamy}@db:5432/${POSTGRES_DB:-hamy}?sslmode=disable
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-10}
+      # Internal endpoint for operations; presigned URLs use the public one
+      # (localhost) because they are consumed by a client outside Docker.
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-localhost:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-hamyadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-hamyadmin123}
+      MINIO_BUCKET: ${MINIO_BUCKET:-hamy-photos}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_USE_SSL: "false"
+      UPLOAD_URL_TTL: ${UPLOAD_URL_TTL:-15m}
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
+  miniodata:
+  gomodcache:
+  gobuildcache:
