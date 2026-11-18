@@ -6,26 +6,40 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"api-hamy/internal/config"
 	"api-hamy/internal/repository/postgres"
+	adminservice "api-hamy/internal/service/admin"
 	albumservice "api-hamy/internal/service/album"
+	authservice "api-hamy/internal/service/auth"
 	photoservice "api-hamy/internal/service/photo"
 	userservice "api-hamy/internal/service/user"
 	storageminio "api-hamy/internal/storage/minio"
+	"api-hamy/internal/token"
 	apihttp "api-hamy/internal/transport/http"
 	"api-hamy/internal/transport/http/handler"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
 	cfg, err := config.Load()
 	if err != nil {
-		logger.Error("invalid configuration", "err", err)
+		slog.New(slog.NewJSONHandler(os.Stdout, nil)).Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
+
+	logger := newLogger(cfg.LogLevel)
+	slog.SetDefault(logger)
+
+	if cfg.JWTSecret == config.DefaultJWTSecret {
+		logger.Warn("JWT_SECRET is using the insecure development default")
+	}
+
+	tokens, err := token.NewManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTTTL)
+	if err != nil {
+		logger.Error("invalid JWT configuration", "err", err)
 		os.Exit(1)
 	}
 
@@ -47,7 +61,7 @@ func main() {
 		cfg.MinioRegion,
 		cfg.MinioBucket,
 		cfg.MinioUseSSL,
-		cfg.MinioUseSSL,
+		cfg.MinioPublicUseSSL,
 	)
 	if err != nil {
 		logger.Error("invalid MinIO configuration", "err", err)
@@ -63,14 +77,26 @@ func main() {
 	photoRepo := postgres.NewPhotoRepository(pool)
 
 	userSvc := userservice.New(userRepo, logger)
+	authSvc := authservice.New(userSvc, tokens, logger)
+	adminSvc := adminservice.New(userSvc, logger)
 	albumSvc := albumservice.New(albumRepo, userRepo, logger)
 	photoSvc := photoservice.New(photoRepo, albumRepo, blobs, cfg.MinioBucket, cfg.UploadURLTTL, logger)
 
-	userHandler := handler.NewUserHandler(userSvc)
+	healthHandler := handler.NewHealthHandler(pool, blobs)
+	authHandler := handler.NewAuthHandler(authSvc)
 	albumHandler := handler.NewAlbumHandler(albumSvc)
 	photoHandler := handler.NewPhotoHandler(photoSvc)
+	adminHandler := handler.NewAdminHandler(adminSvc)
 
-	router := apihttp.NewRouter(userHandler, albumHandler, photoHandler)
+	router := apihttp.NewRouter(
+		healthHandler,
+		authHandler,
+		authSvc,
+		albumHandler,
+		photoHandler,
+		adminHandler,
+		cfg.CORSAllowedOrigins,
+	)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
@@ -95,6 +121,23 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("forced shutdown", "err", err)
 	}
+}
+
+// newLogger builds the JSON logger with the configured level.
+func newLogger(level string) *slog.Logger {
+	var lvl slog.Level
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn", "warning":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
 }
 
 // waitForBucket retries EnsureBucket until MinIO responds or the timeout expires.
